@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources:
+  
+  MyJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Command:
+        Name: glueetl
+        ScriptLocation: "s3://<your-S3-script-uri>"
+      DefaultArguments:
+        "--job-bookmark-option": "job-bookmark-enable"
+      ExecutionProperty:
+        MaxConcurrentRuns: 2
+      MaxRetries: 0
+      Name: cf-job1
+      Role: !Ref MyJobRole
+
+  MyBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: my-bucket
+      OwnershipControls:
+        Rules:
+        - ObjectOwnership: BucketOwnerPreferred
+      AccessControl: AwsExecRead  
+
+  mySecondDDBTable:
+  Type: AWS::DynamoDB::Table
+  DependsOn: "myFirstDDBTable"
+  Properties:
+    AttributeDefinitions:
+      - 
+        AttributeName: "ArtistId"
+        AttributeType: "S"
+      - 
+        AttributeName: "Concert"
+        AttributeType: "S"
+      - 
+        AttributeName: "TicketSales"
+        AttributeType: "S"
+    KeySchema: 
+      - 
+        AttributeName: "ArtistId"
+        KeyType: "HASH"
+      - 
+        AttributeName: "Concert"
+        KeyType: "RANGE"
+    ProvisionedThroughput: 
+      ReadCapacityUnits: 
+        Ref: "ReadCapacityUnits"
+      WriteCapacityUnits: 
+        Ref: "WriteCapacityUnits"
+    GlobalSecondaryIndexes: 
+      - 
+        IndexName: "myGSI"
+        KeySchema: 
+          - 
+            AttributeName: "TicketSales"
+            KeyType: "HASH"
+        Projection: 
+          ProjectionType: "KEYS_ONLY"
+        ProvisionedThroughput: 
+          ReadCapacityUnits: 
+            Ref: "ReadCapacityUnits"
+          WriteCapacityUnits: 
+            Ref: "WriteCapacityUnits"
+    Tags:
+      - Key: foo
+        Value: bar
+
+
+
+
+  RootRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: '*'
+  
+  primer:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: nodejs18.x
+      Role: !Ref RootRole
+      Handler: index.handler
+      Code:
+        ZipFile: |
+          const { S3Client, ListBucketsCommand } = require("@aws-sdk/client-s3");
+          const s3 = new S3Client({ region: "us-east-1" }); // replace "us-east-1" with your AWS region
+
+          exports.handler = async function(event) {
+            const command = new ListBucketsCommand({});
+            const response = await s3.send(command);
+            return response.Buckets;
+          };
+      Description: List Amazon S3 buckets in us-east-1.
+      TracingConfig:
+        Mode: Active
